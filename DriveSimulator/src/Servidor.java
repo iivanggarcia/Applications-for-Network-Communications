@@ -7,8 +7,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 /*
  * To change this license header, choose License Headers in Project Properties.
@@ -45,42 +51,13 @@ public class Servidor {
               System.out.println("\n\nCliente conectado desde "+cl.getInetAddress()+":"+cl.getPort());
               DataInputStream disCl = new DataInputStream(cl.getInputStream());
               long numArchivos = disCl.readLong();
+              int accion = disCl.readInt();
               System.out.println("Num archivos = "+ numArchivos);
-              for(i=0;i<numArchivos; i++){
-                  Socket cl_datos = s_datos.accept(); //acepto la conexion y recibo una referencia de tipo socket
-                  DataInputStream dis = new DataInputStream(cl_datos.getInputStream()); //primero asocio el flujo de lectura para saber el nombre del archivo a escribir
-                                            //no puedo asociar el flujo de escritura porque no se asocia al socket sino al sistema de archivos local y para eso necesito el nombre
-                  String nombre = dis.readUTF(); //leo el nombre del archivo
-                  String nombreTmp = nombre;
-                  long tam = dis.readLong(); //leo el tamaño
-                  Boolean zip = dis.readBoolean(); //veo si el archivo fue comprimido
-                  if(zip) nombreTmp = nombre.replace(".zip", "");
-                  System.out.println("\nComienza descarga del archivo "+nombreTmp+" de "+tam+" bytes");
-                  DataOutputStream dos = new DataOutputStream(new FileOutputStream(ruta_archivos+nombre)); //asocio el flujo de escritura a la ruta que se creo y le agrego el nombre del archivo, DataOutputStream permite escribir tipos de datos primitivos, FileOutputStream solo escribe bytes, "ruta_archivos+nombre" es la ruta donde va a escribir
-                  long recibidos=0;
-                  int l=0, porcentaje=0;
-                  while(recibidos<tam){
-                      byte[] b = new byte[1500]; //Contenedor temporal antes de que se agreguen al archivo , 1500 es el MTU de una tarjeta de red Ethernet
-                      l = dis.read(b); //lo que se pueda leer entre 0 y 1500 bytes lo va a guardar en b y me dice cuántos se pudieron leer
-//                    System.out.println("leidos: "+l);
-                      dos.write(b,0,l); //escribo en el archivo desde el indice 0 a l del arreglo b
-                      dos.flush(); //vacío el buffer para verificar que los datos sí se escriben
-                      recibidos = recibidos + l; //actualizo el num de bytes recibidos
-                      porcentaje = (int)((recibidos*100)/tam); //saco el porcentaje
-//                    System.out.print("\rRecibido el "+ porcentaje +" % del archivo");
-                  }//while
-                  //una vez que ya se acabó de descargar el archivo
-                  dos.close();
-                  //cierro los flujos
-                  dis.close();
-                  cl_datos.close();
-                  if (zip) {
-                      unZip(ruta_archivos+nombre, ruta_archivos+nombreTmp);
-                      File paraBorrar = new File(ruta_archivos+nombre);
-                      paraBorrar.delete();
-                    }//if
-                  System.out.println("Archivo " +nombreTmp +" recibido..");
-              }//for
+              
+              if(accion == 1) subir(ruta_archivos, numArchivos, s_datos);
+              else if(accion == 2) descargar(numArchivos, s_datos);
+              else if(accion == 3) eliminar();
+              
               disCl.close();
               cl.close(); //cierro el socket y vuelve a iniciar el for
           }//for
@@ -90,6 +67,111 @@ public class Servidor {
       }  
     }//main
     
+    private static void subir(String ruta_archivos, long numArchivos, ServerSocket s_datos){
+        try{
+            int i;
+            for(i=0;i<numArchivos; i++){
+                Socket cl_datos = s_datos.accept(); //acepto la conexion y recibo una referencia de tipo socket
+                DataInputStream dis = new DataInputStream(cl_datos.getInputStream()); //primero asocio el flujo de lectura para saber el nombre del archivo a escribir
+                                          //no puedo asociar el flujo de escritura porque no se asocia al socket sino al sistema de archivos local y para eso necesito el nombre
+                String nombre = dis.readUTF(); //leo el nombre del archivo
+                String nombreTmp = nombre;
+                long tam = dis.readLong(); //leo el tamaño
+                Boolean zip = dis.readBoolean(); //veo si el archivo fue comprimido
+                if(zip) nombreTmp = nombre.replace(".zip", "");
+                System.out.println("\nComienza descarga del archivo "+nombreTmp+" de "+tam+" bytes");
+                DataOutputStream dos = new DataOutputStream(new FileOutputStream(ruta_archivos+nombre)); //asocio el flujo de escritura a la ruta que se creo y le agrego el nombre del archivo, DataOutputStream permite escribir tipos de datos primitivos, FileOutputStream solo escribe bytes, "ruta_archivos+nombre" es la ruta donde va a escribir
+                long recibidos=0;
+                int l=0, porcentaje=0;
+                while(recibidos<tam){
+                    byte[] b = new byte[1500]; //Contenedor temporal antes de que se agreguen al archivo , 1500 es el MTU de una tarjeta de red Ethernet
+                    l = dis.read(b); //lo que se pueda leer entre 0 y 1500 bytes lo va a guardar en b y me dice cuántos se pudieron leer
+    //                    System.out.println("leidos: "+l);
+                    dos.write(b,0,l); //escribo en el archivo desde el indice 0 a l del arreglo b
+                    dos.flush(); //vacío el buffer para verificar que los datos sí se escriben
+                    recibidos = recibidos + l; //actualizo el num de bytes recibidos
+                    porcentaje = (int)((recibidos*100)/tam); //saco el porcentaje
+    //                    System.out.print("\rRecibido el "+ porcentaje +" % del archivo");
+                }//while
+                //una vez que ya se acabó de descargar el archivo
+                dos.close();
+                //cierro los flujos
+                dis.close();
+                cl_datos.close();
+                if (zip) {
+                    unZip(ruta_archivos+nombre, ruta_archivos+nombreTmp);
+                    File paraBorrar = new File(ruta_archivos+nombre);
+                    paraBorrar.delete();
+                  }//if
+                System.out.println("Archivo " +nombreTmp +" recibido..");
+            }//for
+        }catch(Exception e){
+          e.printStackTrace();
+        }  
+    }
+    
+        private static void descargar(long numArchivos, ServerSocket s_datos){
+        try{
+            int i;
+            for(i=0;i<numArchivos; i++){
+                Socket cl_datos = s_datos.accept(); //acepto la conexion y recibo una referencia de tipo socket
+                DataInputStream dis = new DataInputStream(cl_datos.getInputStream()); //primero asocio el flujo de lectura para saber el nombre del archivo a escribir
+                                          //no puedo asociar el flujo de escritura porque no se asocia al socket sino al sistema de archivos local y para eso necesito el nombre
+                String nombre = dis.readUTF(); //leo el nombre del archivo
+                String nombreTmp = nombre;
+                long tam = dis.readLong(); //leo el tamaño
+                Boolean zip = dis.readBoolean(); //veo si el archivo fue comprimido
+                if(zip) nombreTmp = nombre.replace(".zip", "");
+                System.out.println("\nComienza descarga del archivo "+nombreTmp+" de "+tam+" bytes");
+                String rutaCliente = ".."+File.separator+".."+File.separator+".."+File.separator+"1Prueba"+File.separator;
+                DataOutputStream dos = new DataOutputStream(new FileOutputStream(rutaCliente+nombre)); //asocio el flujo de escritura a la ruta que se creo y le agrego el nombre del archivo, DataOutputStream permite escribir tipos de datos primitivos, FileOutputStream solo escribe bytes, "ruta_archivos+nombre" es la ruta donde va a escribir
+                long recibidos=0;
+                int l=0, porcentaje=0;
+                while(recibidos<tam){
+                    byte[] b = new byte[1500]; //Contenedor temporal antes de que se agreguen al archivo , 1500 es el MTU de una tarjeta de red Ethernet
+                    l = dis.read(b); //lo que se pueda leer entre 0 y 1500 bytes lo va a guardar en b y me dice cuántos se pudieron leer
+    //                    System.out.println("leidos: "+l);
+                    dos.write(b,0,l); //escribo en el archivo desde el indice 0 a l del arreglo b
+                    dos.flush(); //vacío el buffer para verificar que los datos sí se escriben
+                    recibidos = recibidos + l; //actualizo el num de bytes recibidos
+                    porcentaje = (int)((recibidos*100)/tam); //saco el porcentaje
+    //                    System.out.print("\rRecibido el "+ porcentaje +" % del archivo");
+                }//while
+                //una vez que ya se acabó de descargar el archivo
+                dos.close();
+                //cierro los flujos
+                dis.close();
+                cl_datos.close();
+                if (zip) {
+                    unZip(rutaCliente+nombre, rutaCliente+nombreTmp);
+                    File paraBorrar = new File(rutaCliente+nombre);
+                    paraBorrar.delete();
+                  }//if
+                System.out.println("Archivo " +nombreTmp +" recibido..");
+            }//for
+        }catch(Exception e){
+          e.printStackTrace();
+        }  
+    }
+    
+    private static void eliminar(){
+        
+    }
+    
+        public static void zipFolder(Path sourceFolderPath, Path zipPath) throws Exception {
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipPath.toFile()))) {
+            Files.walkFileTree(sourceFolderPath, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    zos.putNextEntry(new ZipEntry(sourceFolderPath.relativize(file).toString()));
+                    Files.copy(file, zos);
+                    zos.closeEntry();
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        }
+    }//zipFolder
+        
     private static void unZip(String zipFilePath, String destDir) {
         File dir = new File(destDir);
         // create output directory if it doesn't exist
@@ -126,5 +208,14 @@ public class Servidor {
             e.printStackTrace();
         }
     }//unZip
+    
+    public static void deleteFile(File element) {
+        if (element.isDirectory()) {
+            for (File sub : element.listFiles()) {
+                deleteFile(sub);
+            }
+        }
+        element.delete();
+    }//deleFile
 }
 
